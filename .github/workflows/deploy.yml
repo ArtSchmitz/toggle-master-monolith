@@ -1,0 +1,47 @@
+name: 'Deploy Application'
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: 'Deploy to EC2'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            docker stop togglemaster 2>/dev/null || true
+            docker rm togglemaster 2>/dev/null || true
+
+            if [ -d "/home/ec2-user/toggle-master-monolith" ]; then
+              cd /home/ec2-user/toggle-master-monolith
+              git pull origin main
+            else
+              cd /home/ec2-user
+              git clone https://github.com/${{ github.repository }}.git toggle-master-monolith
+              cd /home/ec2-user/toggle-master-monolith
+            fi
+
+            docker build -t togglemaster .
+
+            docker run -d \
+              --name togglemaster \
+              --restart unless-stopped \
+              -p 5000:5000 \
+              -e DB_HOST=${{ secrets.DB_HOST }} \
+              -e DB_NAME=${{ secrets.DB_NAME }} \
+              -e DB_USER=${{ secrets.DB_USER }} \
+              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+              -e DB_PORT=5432 \
+              togglemaster
